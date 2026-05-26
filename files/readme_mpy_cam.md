@@ -26,10 +26,26 @@ Obs.: substitua COM5 pela porta atual da sua placa. Verificar em "Dispositivos" 
 ## Teste inicial da câmera
  
 ```python
-import camera
+from camera import Camera, PixelFormat, FrameSize
 
-camera.init()
-buf = camera.capture()
+cam = Camera(
+    #data_pins=[16,17,18,12,10,8,9,11],
+    data_pins=[11, 9, 8, 10, 12, 18, 17, 16],
+    vsync_pin=6,
+    href_pin=7,
+    pclk_pin=13,
+    xclk_pin=15,
+    sda_pin=4,
+    scl_pin=5,
+    xclk_freq=8000000,
+    powerdown_pin=-1,
+    reset_pin=-1,
+    pixel_format=PixelFormat.RGB565,
+    frame_size=FrameSize.QQVGA,
+    fb_count=1
+)
+
+buf = cam.capture()
 
 with open("foto.jpg", "wb") as f:
     f.write(buf)
