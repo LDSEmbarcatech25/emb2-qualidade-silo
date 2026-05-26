@@ -4,12 +4,25 @@
 ## Objetivo
   - Programar o a câmera utilizando Python.
 ## Instalação no ESP32-S3 N16R8
-  - link: https://github.com/espressif/esptool?utm_source=chatgpt.com
+  - Verificar se a RAM é QUAD ou OCT:
+```bash
+py -m esptool --chip esp32s3 flash-id
+```
+  - link do git das firmwares: https://github.com/espressif/esptool?utm_source=chatgpt.com
+  - firmware SPIRAM_OCT: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3-SPIRAM_OCT.zip
+  - firmware SPIRAM_QUAD: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC-SPIRAM.zip
+  - Instale a ferramenta esptool:
 ```bash
 pip install esptool
-esptool.py erase_flash
-esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 firmware.bin
 ```
+  - Abra o terminal na pasta que contem o arquivo firmware.bin, e dê os seguintes comandos:
+```bash
+python -m esptool --chip esp32s3 --port COM5 erase-flash
+python -m esptool --chip esp32s3 --port COM5 --baud 460800 write-flash 0x0 firmware.bin
+```
+Obs.: substitua COM5 pela porta atual da sua placa. Verificar em "Dispositivos" no windows.
+  - Aperte RESET na placa.
+  - Abra o Thonny para testar a placa.
 ## Teste inicial da câmera
  
 ```python
