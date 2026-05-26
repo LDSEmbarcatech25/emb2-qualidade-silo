@@ -10,7 +10,7 @@ py -m esptool --chip esp32s3 flash-id
 ```
   - link do git das firmwares: https://github.com/espressif/esptool?utm_source=chatgpt.com
   - firmware SPIRAM_OCT: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3-SPIRAM_OCT.zip
-  - firmware SPIRAM_QUAD: [https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC-SPIRAM.zip](https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3.zip)
+  - firmware SPIRAM_QUAD: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3.zip
   - Instale a ferramenta esptool:
 ```bash
 pip install esptool
