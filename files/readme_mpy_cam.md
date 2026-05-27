@@ -8,9 +8,9 @@
 ```bash
 py -m esptool --chip esp32s3 flash-id
 ```
-  - link do git das firmwares: https://github.com/espressif/esptool?utm_source=chatgpt.com
-  - firmware SPIRAM_OCT: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3-SPIRAM_OCT.zip
-  - firmware SPIRAM_QUAD: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.6.2/mpy_cam-v1.27.0-ESP32_GENERIC_S3.zip
+  - link do git das firmwares: https://github.com/cnadler86/micropython-camera-API/releases?utm_source=chatgpt.com
+  - repositório do README da câmera: https://github.com/cnadler86/micropython-camera-API
+  - firmware ESP32S3 SPIRAM_OCT: https://github.com/cnadler86/micropython-camera-API/releases/download/v0.5.0/mpy_cam-v1.26.1-ESP32_GENERIC_S3-SPIRAM_OCT.zip
   - Instale a ferramenta esptool:
 ```bash
 pip install esptool
@@ -26,30 +26,79 @@ Obs.: substitua COM5 pela porta atual da sua placa. Verificar em "Dispositivos" 
 ## Teste inicial da câmera
  
 ```python
-from camera import Camera, PixelFormat, FrameSize
+import os
+import struct
+import gc
+from camera import Camera, GrabMode, PixelFormat, FrameSize, GainCeiling
+
+print("flash size")
+import esp
+print(esp.flash_size())
+
+print("flash free")
+print(gc.mem_free())
+
+print("PixelFormat e FrameSize")
+print(dir(PixelFormat))
+print(dir(FrameSize))
+
+print("teste 1")
+print(dir(Camera))
+
+print("teste 2")
+print(Camera)
+
+print("teste 3")
 
 cam = Camera(
-    #data_pins=[16,17,18,12,10,8,9,11],
     data_pins=[11, 9, 8, 10, 12, 18, 17, 16],
+
     vsync_pin=6,
     href_pin=7,
-    pclk_pin=13,
-    xclk_pin=15,
     sda_pin=4,
     scl_pin=5,
-    xclk_freq=8000000,
-    powerdown_pin=-1,
-    reset_pin=-1,
+    pclk_pin=13,
+    xclk_pin=15,
+    xclk_freq=20000000,
+
     pixel_format=PixelFormat.RGB565,
-    frame_size=FrameSize.QQVGA,
-    fb_count=1
+    frame_size=FrameSize.VGA,
+    fb_count=2
 )
 
+print("camera iniciada")
+print(cam.get_sensor_name())
+print(cam.get_pixel_format())
+
+print("captura RGB")
 buf = cam.capture()
+print(type(buf))
+print(len(buf))
+
+print("teste 4")
+cam.reconfigure(
+    pixel_format=PixelFormat.JPEG,
+    frame_size=FrameSize.QHD
+    #camera.vflip = True #Enable vertical flip
+)
+
+cam.set_quality(90)
+
+print("modo jpeg")
+
+print("captura JPG")
+buf = cam.capture()
+
+print(len(buf))
 
 with open("foto.jpg", "wb") as f:
     f.write(buf)
+
+print("jpg salvo")
+
 ```
+- Se passar pelo teste 3, a câmera está ok.
+- Se passar pelo teste 4, o JPG está ok, e vai funcionar para o projeto.
 ## Observações importantes para o OV5640
 A OV5640 consome bastante RAM e energia.
 
@@ -71,3 +120,38 @@ A comunidade relata:
   - superaquecimento
   - travamentos
   - baixa estabilidade em resoluções altas
+## Uso da câmera
+```python
+from camera import Camera, GrabMode, PixelFormat, FrameSize, GainCeiling
+
+cam = Camera(
+    data_pins=[11, 9, 8, 10, 12, 18, 17, 16],
+
+    vsync_pin=6,
+    href_pin=7,
+    sda_pin=4,
+    scl_pin=5,
+    pclk_pin=13,
+    xclk_pin=15,
+    xclk_freq=20000000,
+
+    pixel_format=PixelFormat.JPEG,
+    frame_size=FrameSize.FHD
+    fb_count=2
+)
+
+print("camera iniciada")
+
+cam.set_quality(90)
+
+print("captura JPG")
+buf = cam.capture()
+
+print(len(buf))
+
+with open("foto.jpg", "wb") as f:
+    f.write(buf)
+
+print("jpg salvo")
+
+```
