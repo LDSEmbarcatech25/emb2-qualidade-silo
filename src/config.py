@@ -1,33 +1,39 @@
 # config.py
 from machine import Pin
 
-# Configurações de Rede e IoT
-WIFI_SSID = "Rede_LDS_IFCE"
-WIFI_PASS = "SenhaIndustrial123"
-MQTT_BROKER = "192.168.1.100"  # IP do Mosquitto ou ThingsBoard
+# --- CONFIGURAÇÕES DE REDE E IOT ---
+WIFI_SSID = "IFCE Alunos"
+WIFI_PASS = ""
+MQTT_BROKER = "thingsboard.cloud"
 MQTT_PORT = 1883
-MQTT_CLIENT_ID = "Silo_Principal_S3"
-MQTT_TOKEN = "TOKEN_DE_ACESSO_THINGSBOARD"
+MQTT_CLIENT_ID = "Silo_01"
+MQTT_TOKEN = "RRWtjO0XF7ET5lfHyLRy"
 
-# Barramentos I2C
+# --- MAPEAMENTO DE HARDWARE (KiiRA 2.0) ---
+# Barramento I2C0 - Compartilhado entre HDC1080 e VL53L0X
 I2C0_SDA = 14
 I2C0_SCL = 21
-I2C0_FREQ = 100000  # Conforme especificado: ToF e Clima cravados em 100kHz
+I2C0_FREQ = 100000  # Cravado em 100kHz para o ToF e Clima conforme especificado
 
+# Barramento I2C1 - Display OLED Independente
 I2C1_SDA = 14
 I2C1_SCL = 21
-I2C1_FREQ = 400000  # Display OLED em Fast Mode
+I2C1_FREQ = 400000  # Fast Mode para atualização rápida do OLED
 
-# Pinos Digitais e Atuadores
-PIN_RELE = 47      # Ativação em LOW (Chave Direita)
-PIN_MOSFET = 48    # Ativação em LOW / PWM (Chave Esquerda)
-PIN_LED_FLASH = 42 # Flash para a câmera OV5640
-PIN_BUZZER = 3     # Alarme sonoro PWM
-
-# Botões (Entradas com Pull-up)
+# Periféricos de Entrada (Botões com Pull-Up)
 PIN_BOTAO_1 = 45   # Avançar Tela
-PIN_BOTAO_2 = 46   # Ação Local
+PIN_BOTAO_2 = 46   # Ação Local Técnico
 
-# Parâmetros de Processamento
-TAMANHO_MEDIA_MOVEL = 10
-LIMIAR_ALERTA_VAZIO = 10.0 # Porcentagem crítica de nível mínimo
+# Periféricos de Saída e Atuadores
+PIN_RELE = 47       # Relé Direito (Ativo em LOW)
+PIN_MOSFET = 48     # MOSFET Esquerdo (Ativo em LOW)
+PIN_LED_FLASH = 42  # LED Integrado configurado como Flash da Câmera
+PIN_BUZZER = 3      # Sinalizador Sonoro (PWM - 5kHz)
+
+# Sensor Analógico de Luminosidade
+PIN_LDR = 1         # ADC1_CH0 (0-4095)
+
+# --- REGRAS DE NEGÓCIO E LIMITES ---
+LIMIAR_ALERTA_VAZIO = 10.0  # % Limiar crítico inferior do Silo
+LIMIT_TEMP_MAX = 35.0       # °C Máxima antes do Alerta de Clima
+LIMIT_UMID_MAX = 70.0       # % Máxima antes do Alerta de Clima
