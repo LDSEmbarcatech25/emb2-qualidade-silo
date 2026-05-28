@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# MicroPython
+*.mpy
+
+# Firmware
+*.bin
+*.uf2
+*.zip
+
+# README
+*.md
+
+# documentos
+*.pdf
+*.docx
+
+# ESP-IDF / build
+build/
+dist/
+
+# VS Code
+.vscode/
+
+# Thonny
+.thonny/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Ambiente virtual
+venv/
+.env/
+
+# Arquivos temporários
+*.tmp
+*.bak
+
+# Capturas da câmera
+*.bmp
+*.jpg
+*.jpeg
+*.raw
