@@ -26,7 +26,7 @@ I2C_FREQ = 100_000   # 100 kHz (limitado pelo VL53L0X)
 
 # Endereços I2C (7-bit)
 HDC1080_ADDR = 0x40
-VL53L0X_ADDR = 0x52   # 8-bit: 0x52 >> 1 \ era 29
+VL53L0X_ADDR = 0x29   # 8-bit: 0x52 >> 1 \ era 29
 SSD1306_ADDR = 0x3C
 
 # --- LDR ---
