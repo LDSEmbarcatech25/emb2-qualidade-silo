@@ -1,0 +1,12 @@
+arquivos: fluxo_display, 4.1Mapeamento, README.md, documentação kiira
+
+diretivas: modularizado,micropython, vscode, pymkr, placa kiira com esp32s3 wroom 1 n16r8, thingsboard.io, mqtt
+
+observações:
+	- o sensor de distância vai ficar a 100khz, e o led vai servir como um flash de luz para iluminar o ambiente durante a captura de imagem da câmera, então precisa haver uma sincronia entre o uso do led e a captura da câmera.
+	- a placa kiira possui uma chave seletora para cada par relé/mosfet. Uma chave da esquerda estará selecionada para mosfet e a chave da direita estará selecionada para o relé.
+
+comando: me ajude a codificar meu projeto. preciso de códigos modularizados, em micropython, pois vou utilizar o pymkr no vscode, para programar uma esp32s3 wroom1 n16r8 na placa de desenvolvimento kiira, se comunicando via mqtt com a dashboard thingsboard.io.
+Obs.: - o sensor de distância vai ficar a 100khz, e o led vai servir como um flash de luz para iluminar o ambiente durante a captura de imagem da câmera, então precisa haver uma sincronia entre o uso do led e a captura da câmera.
+- a placa kiira possui uma chave seletora para cada par relé/mosfet. Uma chave da esquerda estará selecionada para mosfet e a chave da direita estará selecionada para o relé.
+Envio aqui alguns arquivos com definições deste projeto.
