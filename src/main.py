@@ -1,4 +1,4 @@
-# ============================================================
+# main.py -- put your code here!# ============================================================
 #  main.py — Ponto de entrada do firmware Silo IoT
 #  Placa: Kiira (ESP32-S3 WROOM1 N16R8)
 #  Runtime: MicroPython com módulo camera (cnadler86)
