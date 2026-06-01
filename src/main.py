@@ -1,253 +1,445 @@
-# main.py
-import uasyncio as asyncio
-from machine import Pin, I2C, SDCard, PWM
-import os
-import network
+# ============================================================
+#  main.py — Ponto de entrada do firmware Silo IoT
+#  Placa: Kiira (ESP32-S3 WROOM1 N16R8)
+#  Runtime: MicroPython com módulo camera (cnadler86)
+# ============================================================
 import time
+import machine
+import uasyncio as asyncio
 
-# Importação dos módulos customizados do projeto
 import config
-import sensores
-import camera_flash
-import display_oled
-import comunicacao
+from connectivity.wifi       import WiFiManager
+from connectivity.mqtt_client import ThingsBoardMQTT
+from sensors.hdc1080         import HDC1080
+from sensors.vl53l0x         import VL53L0X
+from sensors.ldr             import LDR
+from display.oled            import OledDisplay
+from actuators.relay         import Relay
+from actuators.mosfet        import Mosfet
+from actuators.buzzer        import Buzzer
+from storage.sdcard          import SDLogger
+from camera_module.cam       import SiloCamera
+from ui.menu                 import MenuController
 
-# --- INSTANCIAÇÃO DE ATUADORES GLOBAIS ---
-# Relé e MOSFET operam em nível lógico BAIXO (Active LOW) na KiiRA 2.0
-rele = Pin(config.PIN_RELE, Pin.OUT, value=1)   # 1 = Desligado
-mosfet = Pin(config.PIN_MOSFET, Pin.OUT, value=1) # 1 = Desligado
 
-# Buzzer para alarmes críticos locais
-buzzer_alarme = PWM(Pin(config.PIN_BUZZER))
-buzzer_alarme.deinit()
+# ============================================================
+#  Inicialização de hardware
+# ============================================================
+def init_hardware():
+    """Inicializa todos os periféricos e retorna um dict de handles."""
+    print("[BOOT] Inicializando hardware...")
 
-# Constante de calibração do Silo (Altura total do teto ao chão em mm)
-ALTURA_MAX_SILO_MM = 3000 
+    # Barramento I2C único para sensores + display (100 kHz)
+    i2c = machine.I2C(
+        config.I2C_ID,
+        scl=machine.Pin(config.I2C_SCL),
+        sda=machine.Pin(config.I2C_SDA),
+        freq=config.I2C_FREQ,
+    )
 
-# Flags de controle de estado de manutenção
-teste_potencia_ativo = False
-sd_disponivel = False
+    devices = i2c.scan()
+    print(f"[I2C] Dispositivos encontrados: {[hex(a) for a in devices]}")
+    i2c_ok = len(devices) > 0
 
-def salvar_log(evento, detalhe):
-    """Escreve eventos e telemetrias no MicroSD em modo Append (CSV)"""
-    if not sd_disponivel:
-        return
+    # Sensores
     try:
-        with open("/sd/logs.csv", "a") as f:
-            # Formato: timestamp_estimado, evento, detalhe
-            f.write("{},{},{}\n".format(time.ticks_ms(), evento, detalhe))
+        hdc  = HDC1080(i2c)
+        vl   = VL53L0X(i2c)
+        ldr  = LDR(config.LDR_PIN)
+        sens_ok = True
+        print("[BOOT] Sensores I2C OK")
     except Exception as e:
-        print("Erro ao gravar no SD:", e)
+        print(f"[BOOT] Erro nos sensores: {e}")
+        hdc = vl = ldr = None
+        sens_ok = False
 
-# --- DEFINIÇÃO DAS CALLBACKS DE INTERAÇÃO (BOTÕES DO OLED) ---
+    # Display OLED
+    try:
+        oled = OledDisplay(i2c)
+        oled_ok = True
+        print("[BOOT] OLED OK")
+    except Exception as e:
+        print(f"[BOOT] Erro no OLED: {e}")
+        oled     = None
+        oled_ok  = False
 
-async def cb_forcar_laser():
-    """Acionada pelo Botão 2 na Tela A: Força leitura imediata"""
-    print("Ação Local: Atualizando média móvel do ToF instantaneamente...")
-    dist = sensores.ler_nivel(forcar_imediato=True)
-    salvar_log("BOTAO_FORCAR_LASER", "Dist: {}mm".format(dist))
+    # Atuadores
+    relay  = Relay(config.RELAY_PIN)
+    mosfet = Mosfet(config.MOSFET_PIN)
+    buzzer = Buzzer(config.BUZZER_PIN)
 
-async def cb_teste_potencia():
-    """Acionada pelo Botão 2 na Tela C: Inverte saídas por 5 segundos"""
-    global teste_potencia_ativo
-    if not teste_potencia_ativo:
-        print("Ação Local: Iniciando teste de bancada dos exaustores (5s)...")
-        teste_potencia_ativo = True
-        
-        # Inverte o estado físico para ligado (LOW)
-        rele.value(0)
-        mosfet.value(0)
-        salvar_log("TESTE_BANCADA", "ATIVADO")
-        
-        # Sub-tarefa assíncrona para desligar após 5 segundos sem travar a placa
-        async def encerrar_teste():
-            global teste_potencia_ativo
-            await asyncio.sleep(5)
-            rele.value(1) # Desliga
-            mosfet.value(1) # Desliga
-            teste_potencia_ativo = False
-            print("Ação Local: Teste de bancada finalizado com segurança.")
-            salvar_log("TESTE_BANCADA", "DESATIVADO")
-            
-        asyncio.create_task(encerrar_teste())
-
-# --- DEFINIÇÃO DAS CALLBACKS DE INTERAÇÃO (COMANDOS RPC DA NUVEM) ---
-
-def cb_rpc_exaustor(ligar):
-    """Acionada via Dashboard do ThingsBoard para controle remoto"""
-    if ligar:
-        rele.value(0)
-        mosfet.value(0)
-        print("Nuvem: Exaustores ligados por comando remoto.")
-        salvar_log("RPC_EXAUSTOR", "LIGADO")
+    # SD Card
+    sd = SDLogger()
+    if sd.is_mounted:
+        print("[BOOT] SD Card montado OK")
     else:
-        rele.value(1)
-        mosfet.value(1)
-        print("Nuvem: Exaustores desligados por comando remoto.")
-        salvar_log("RPC_EXAUSTOR", "DESLIGADO")
+        print("[BOOT] SD Card não encontrado (continuando sem log)")
 
-def cb_rpc_camera():
-    """Acionada via Dashboard do ThingsBoard para bater foto sob demanda"""
-    print("Nuvem: Requisição de imagem recebida. Capturando...")
-    # Roda a captura síncrona com sincronismo de flash
-    foto = camera_flash.capturar_foto_com_flash()
-    if foto:
-        salvar_log("RPC_CAMERA", "SUCESSO_CAPTURA")
-        # Nota: O envio do array de bytes bruto (JPEG) ao ThingsBoard exige 
-        # conversão para Base64 ou publicação via HTTP binário.
+    # Câmera
+    cam = SiloCamera()
+    cam_ok = cam.is_ready
+
+    return {
+        "i2c":      i2c,
+        "i2c_ok":   i2c_ok and sens_ok,
+        "hdc":      hdc,
+        "vl":       vl,
+        "ldr":      ldr,
+        "oled":     oled,
+        "relay":    relay,
+        "mosfet":   mosfet,
+        "buzzer":   buzzer,
+        "sd":       sd,
+        "cam":      cam,
+        "cam_ok":   cam_ok,
+    }
+
+
+# ============================================================
+#  Sequência de inicialização com display
+# ============================================================
+def boot_sequence(hw, wifi, mqtt):
+    """Exibe splash, diagnóstico e conecta Wi-Fi + MQTT."""
+    oled   = hw["oled"]
+    buzzer = hw["buzzer"]
+
+    # Tela 1 — Splash
+    if oled:
+        oled.splash()
+    time.sleep_ms(2000)
+
+    # Tela 2 — Diagnóstico (enquanto conecta)
+    if oled:
+        oled.diagnostics(hw["i2c_ok"], hw["cam_ok"],
+                         "Conectando", "Aguardando")
+
+    # Wi-Fi
+    wifi_ok = wifi.connect()
+
+    if oled:
+        oled.diagnostics(hw["i2c_ok"], hw["cam_ok"],
+                         wifi.status_str, "Conectando")
+
+    # MQTT
+    mqtt_ok = mqtt.connect()
+
+    if oled:
+        oled.diagnostics_connected() if (wifi_ok and mqtt_ok) else \
+            oled.diagnostics(hw["i2c_ok"], hw["cam_ok"],
+                             wifi.status_str, mqtt.status_str)
+    time.sleep_ms(1000)
+
+    # Bipe de confirmação de conexão
+    if wifi_ok and mqtt_ok:
+        buzzer.beep_double()
+        print("[BOOT] Sistema pronto — enviando atributos iniciais")
+        mqtt.publish_attributes({
+            "firmware": "SiloIoT-v1.0",
+            "board":    "Kiira ESP32-S3",
+            "sensor":   "VL53L0X + HDC1080 + OV5640",
+        })
     else:
-        salvar_log("RPC_CAMERA", "FALHA_CAPTURA")
+        print("[BOOT] Inicializando sem conectividade")
 
-# --- LOOPS ASSÍNCRONOS PRINCIPAIS (UASYNCIO) ---
 
-async def loop_processamento_sensores(ui):
-    """Loop concorrente: Lê sensores, calcula filtros e aplica regras de automação"""
-    global teste_potencia_ativo
+# ============================================================
+#  Estado global compartilhado entre tasks
+# ============================================================
+class AppState:
+    def __init__(self):
+        self.temp         = 0.0
+        self.humidity     = 0.0
+        self.ldr_raw      = 0
+        self.dist_mm      = 0
+        self.volume_pct   = 0.0
+        self.relay_on     = False
+        self.mosfet_on    = False
+        self.alarm_active = False
+        self.capture_requested = False   # sinaliza captura via MQTT/botão
+
+
+# ============================================================
+#  Tasks assíncronas
+# ============================================================
+
+async def task_sensors(hw, state, mqtt, sd):
+    """Lê sensores, controla atuadores e publica telemetria periodicamente."""
+    hdc   = hw["hdc"]
+    vl    = hw["vl"]
+    ldr   = hw["ldr"]
+    relay = hw["relay"]
+    mosfet= hw["mosfet"]
+
+    last_telemetry = time.ticks_ms()
+    last_sd_log    = time.ticks_ms()
+
     while True:
-        # 1. Realiza as amostragens físicas
-        temp, umid = sensores.ler_clima()
-        dist_mm = sensores.ler_nivel()
-        luz_bruta = sensores.ler_luminosidade()
-        vol_per = sensores.calcular_volume_percent(dist_mm, ALTURA_MAX_SILO_MM)
-        
-        # 2. Transmite os dados em tempo real para as variáveis do Display
-        ui.temperatura = temp
-        ui.umidade = umid
-        ui.distancia_mm = dist_mm
-        ui.volume_percent = vol_per
-        ui.ldr_bruto = luz_bruta
-        
-        # 3. MÁQUINA DE ESTADOS - REGRAS DE AUTOMAÇÃO INDUSTRIAL
-        # FASE 3: Alarme Crítico de Silo Vazio (Prioridade Máxima)
-        if vol_per < config.LIMIAR_ALERTA_VAZIO:
-            ui.status_silo = "CRITICO_VAZIO"
-            # Ativa Buzzer de forma intermitente (Alarme Sonoro)
-            buzzer_alarme.init(freq=3000, duty=512)
-            await asyncio.sleep_ms(200)
-            buzzer_alarme.deinit()
-            salvar_log("ALERTA_CRITICO", "Silo abaixo de 10 por cento!")
-            
-        # FASE 2: Controle de Climatização por Limiar (Se não estiver em teste ou crítico)
-        else:
-            if not teste_potencia_ativo:
-                if temp > config.LIMIT_TEMP_MAX or umid > config.LIMIT_UMID_MAX:
-                    ui.status_silo = "ALERTA_CLIMA"
-                    rele.value(0)   # Liga Climatização (Active LOW)
-                    mosfet.value(0) 
-                else:
-                    ui.status_silo = "NORMAL"
-                    rele.value(1)   # Desliga Climatização
-                    mosfet.value(1)
+        now = time.ticks_ms()
+
+        # --- Leitura de sensores ---
+        try:
+            if hdc:
+                state.temp, state.humidity = hdc.read()
+        except Exception as e:
+            print(f"[SENS] HDC1080 erro: {e}")
+
+        try:
+            if vl:
+                state.dist_mm  = vl.read_average()
+                state.volume_pct = vl.distance_to_volume_pct(state.dist_mm)
+        except Exception as e:
+            print(f"[SENS] VL53L0X erro: {e}")
+
+        try:
+            if ldr:
+                state.ldr_raw = ldr.read_raw()
+        except Exception as e:
+            print(f"[SENS] LDR erro: {e}")
+
+        # --- Controle de atuadores ---
+        state.relay_on  = relay.update(state.temp, state.humidity)
+        state.mosfet_on = mosfet.update(state.temp, state.humidity)
+
+        # --- Alarme crítico ---
+        state.alarm_active = (state.volume_pct < config.LEVEL_CRITICAL_PCT)
+
+        # --- Publicação de telemetria (intervalo configurado) ---
+        if time.ticks_diff(now, last_telemetry) >= config.TELEMETRY_INTERVAL_MS:
+            last_telemetry = now
+            payload = {
+                "temperature":   state.temp,
+                "humidity":      state.humidity,
+                "ldr_raw":       state.ldr_raw,
+                "distance_mm":   state.dist_mm,
+                "volume_pct":    state.volume_pct,
+                "relay":         1 if state.relay_on  else 0,
+                "mosfet":        1 if state.mosfet_on else 0,
+                "alarm_level":   1 if state.alarm_active else 0,
+            }
+            mqtt.publish_telemetry(payload)
+
+        # --- Log no SD (intervalo maior) ---
+        if time.ticks_diff(now, last_sd_log) >= config.SD_LOG_INTERVAL_MS:
+            last_sd_log = now
+            sd.log_telemetry(
+                state.temp, state.humidity, state.ldr_raw,
+                state.dist_mm, state.volume_pct,
+                state.relay_on, state.mosfet_on,
+            )
+            if state.alarm_active:
+                sd.log_alert("NIVEL_CRITICO",
+                             f"volume={state.volume_pct}%")
+
+        await asyncio.sleep_ms(1000)
+
+
+async def task_camera(hw, state, mqtt, sd):
+    """Monitora pedidos de captura de imagem e processa."""
+    cam = hw["cam"]
+
+    while True:
+        if state.capture_requested:
+            state.capture_requested = False
+            print("[CAM] Captura solicitada")
+
+            if hw["oled"]:
+                hw["oled"].screen_capturing()
+
+            jpeg_bytes, b64_str = cam.capture()
+
+            if jpeg_bytes:
+                # Salva no SD
+                path = sd.save_image(jpeg_bytes)
+                print(f"[CAM] Imagem salva: {path} ({len(jpeg_bytes)} bytes)")
+
+                # Envia via MQTT (Base64)
+                ok = mqtt.publish_image(b64_str)
+                print(f"[CAM] Imagem publicada MQTT: {'OK' if ok else 'FALHOU'}")
             else:
-                ui.status_silo = "TESTE"
-                
-        await asyncio.sleep(2) # Executa o ciclo de automação a cada 2 segundos
+                print("[CAM] Falha na captura")
 
-async def loop_comunicacao_iot(ui, iot):
-    """Loop concorrente: Trata recepção de dados da rede e publica telemetrias"""
-    contador_envio = 0
+        await asyncio.sleep_ms(200)
+
+
+async def task_mqtt(mqtt, wifi, state, buzzer):
+    """Mantém a conexão MQTT e processa mensagens recebidas."""
+    last_check = time.ticks_ms()
+
     while True:
-        # Escuta ativamente por 100ms se há comandos RPC pendentes no Broker
-        iot.escutar_rede()
-        
-        # Atualiza o status de conexões na tela técnica (Tela C)
-        wlan = network.WLAN(network.STA_IF)
-        ui.wifi_status = "CONECTADO" if wlan.isconnected() else "DESCONECTADO"
-        ui.mqtt_status = "ONLINE" if ui.wifi_status == "CONECTADO" else "OFFLINE"
-        
-        # Envia pacotes de telemetria para a nuvem a cada 10 segundos
-        contador_envio += 1
-        if contador_envio >= 100: # 100 * 100ms = 10s
-            contador_envio = 0
-            if ui.mqtt_status == "ONLINE":
-                payload = {
-                    "temperature": ui.temperatura,
-                    "humidity": ui.umidade,
-                    "distance_mm": ui.distancia_mm,
-                    "volume_percent": ui.volume_percent,
-                    "luminosity": ui.ldr_bruto,
-                    "relay_status": 1 if rele.value() == 0 else 0,
-                    "mosfet_status": 1 if mosfet.value() == 0 else 0,
-                    "status": ui.status_silo
-                }
-                iot.publicar_telemetria(payload)
-                # Grava uma cópia da telemetria localmente no SD
-                salvar_log("TELEMETRIA_OK", "Volume:{} por cento".format(ui.volume_percent))
-                
+        now = time.ticks_ms()
+
+        # Garante reconexão periódica
+        if time.ticks_diff(now, last_check) >= 5000:
+            last_check = now
+            wifi.ensure_connected()
+            if wifi.is_connected:
+                mqtt.ensure_connected()
+
+        mqtt.check_messages()
         await asyncio.sleep_ms(100)
 
-# --- FLUXO PRINCIPAL DE ORQUESTRACAO (MAIN) ---
 
-async def main():
-    global sd_disponivel
-    print("Iniciando Sistema Emb2-qualidade-silo...")
-    
-    # Inicializa o barramento I2C1 exclusivo para o Display OLED (400 kHz Fast Mode)
-    i2c_oled = I2C(1, sda=Pin(config.I2C1_SDA), scl=Pin(config.I2C1_SCL), freq=config.I2C1_FREQ)
-    
-    # Instancia a interface gráfica do usuário
-    ui = display_oled.InterfaceUsuario(i2c_oled)
-    
-    # Vincula as funções de clique do Botão 2 às Callbacks da UI
-    ui.callback_forcar_laser = cb_forcar_laser
-    ui.callback_teste_potencia = cb_teste_potencia
-    
-    # FASE 1 - TELA 1: Splash Screen de Boas-Vindas (Fixa por 2 segundos)
-    ui.exibir_splash()
-    await asyncio.sleep(2)
-    
-    # Tentativa de Montagem do Cartão MicroSD (Slot 1, 1-bit na KiiRA 2.0)
-    try:
-        sd = SDCard(slot=1, width=1)
-        os.mount(sd, "/sd")
-        sd_disponivel = True
-        # Cria o arquivo e o cabeçalho se ele for novo
-        if "logs.csv" not in os.listdir("/sd"):
-            with open("/sd/logs.csv", "w") as f:
-                f.write("timestamp,evento,detalhe\n")
-        print("Cartão MicroSD montado com sucesso.")
-    except Exception as e:
-        print("Aviso: MicroSD ausente ou falhou. Operando sem log local.", e)
+async def task_display(hw, state, menu, buzzer):
+    """Atualiza o display e gerencia alarmes visuais/sonoros."""
+    last_buzz = time.ticks_ms()
 
-    # FASE 1 - TELA 2: Execução do Auto-Teste Diagnóstico em tempo real
-    i2c_ok = sensores.inicializar_hdc1080()
-    cam_ok = camera_flash.inicializar_camera()
-    
-    wlan = network.WLAN(network.STA_IF)
-    wifi_ok = wlan.isconnected()
-    
-    # Inicializa e tenta conectar ao MQTT do ThingsBoard
-    iot = comunicacao.ComunicacaoIoT()
-    iot.callback_exaustor = cb_rpc_exaustor
-    iot.callback_camera = cb_rpc_camera
-    
-    mqtt_ok = False
-    if wifi_ok:
-        mqtt_ok = iot.conectar()
-        
-    # Atualiza a tela de diagnóstico com o veredito dos testes de hardware
-    ui.atualizar_diagnostico_boot(i2c_ok, cam_ok, wifi_ok, mqtt_ok)
-    await asyncio.sleep(2) # Tempo para leitura do técnico em campo
-    
-    # FASE 1 - TRANSIÇÃO: Emite o bipe sonoro de sucesso e libera o menu
-    ui.bipe_transicao()
-    salvar_log("BOOT_SISTEMA", "STATUS_OK")
-    
-    # DISPARO DO AGENDADOR DE TAREFAS CONCORRENTES (uasyncio)
-    # Cria e roda os loops simultaneamente em background (Multitasking Cooperativo)
-    asyncio.create_task(ui.monitorar_botoes())
-    asyncio.create_task(ui.atualizar_interface_loop(rele, mosfet))
-    asyncio.create_task(loop_processamento_sensores(ui))
-    asyncio.create_task(loop_comunicacao_iot(ui, iot))
-    
-    # Mantém o loop principal do scheduler vivo indefinidamente
     while True:
-        await asyncio.sleep(1)
+        # Sincroniza dados no menu
+        menu.update_data(
+            dist_mm    = state.dist_mm,
+            volume_pct = state.volume_pct,
+            status     = "CRITICO" if state.alarm_active else "NORMAL",
+            temp       = state.temp,
+            humidity   = state.humidity,
+            ldr_raw    = state.ldr_raw,
+            wifi_ok    = True,    # atualizado abaixo
+            mqtt_ok    = True,
+            relay_on   = state.relay_on,
+            mosfet_on  = state.mosfet_on,
+        )
+        menu.set_alarm(state.alarm_active)
+        menu.tick()
 
-# Ponto de entrada padrão do MicroPython
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Programa interrompido pelo desenvolvedor.")
-        buzzer_alarme.deinit()
+        # Buzzer de alarme crítico
+        if state.alarm_active:
+            now = time.ticks_ms()
+            if time.ticks_diff(now, last_buzz) >= config.BUZZER_INTERVAL_MS:
+                last_buzz = now
+                buzzer.beep_alert()
+
+        await asyncio.sleep_ms(config.DISPLAY_REFRESH_MS)
+
+
+# ============================================================
+#  Registro de comandos RPC vindos do ThingsBoard
+# ============================================================
+def register_rpc_commands(mqtt, hw, state):
+    relay  = hw["relay"]
+    mosfet = hw["mosfet"]
+
+    def rpc_capture_image(params):
+        state.capture_requested = True
+        return {"status": "ok", "message": "Captura agendada"}
+
+    def rpc_toggle_relay(params):
+        if state.relay_on:
+            relay.force_off()
+            state.relay_on = False
+        else:
+            relay.force_on()
+            state.relay_on = True
+        return {"relay": state.relay_on}
+
+    def rpc_toggle_mosfet(params):
+        if state.mosfet_on:
+            mosfet.force_off()
+            state.mosfet_on = False
+        else:
+            mosfet.force_on()
+            state.mosfet_on = True
+        return {"mosfet": state.mosfet_on}
+
+    def rpc_get_status(params):
+        return {
+            "temp":        state.temp,
+            "humidity":    state.humidity,
+            "dist_mm":     state.dist_mm,
+            "volume_pct":  state.volume_pct,
+            "relay":       state.relay_on,
+            "mosfet":      state.mosfet_on,
+            "alarm":       state.alarm_active,
+        }
+
+    mqtt.register_rpc("captureImage",  rpc_capture_image)
+    mqtt.register_rpc("toggleRelay",   rpc_toggle_relay)
+    mqtt.register_rpc("toggleMosfet",  rpc_toggle_mosfet)
+    mqtt.register_rpc("getStatus",     rpc_get_status)
+
+
+# ============================================================
+#  Ações locais via botões (Btn2)
+# ============================================================
+def register_local_actions(menu, hw, state):
+    vl     = hw["vl"]
+    relay  = hw["relay"]
+    mosfet = hw["mosfet"]
+    buzzer = hw["buzzer"]
+
+    def force_tof_reading():
+        """Btn2 na Tela A — força leitura instantânea do ToF."""
+        if vl:
+            try:
+                state.dist_mm    = vl.read_single()
+                state.volume_pct = vl.distance_to_volume_pct(state.dist_mm)
+                print(f"[BTN] Leitura forçada: {state.dist_mm} mm / {state.volume_pct}%")
+            except Exception as e:
+                print(f"[BTN] Erro na leitura forçada: {e}")
+
+    def test_actuators():
+        """Btn2 na Tela C — testa relé e MOSFET por 5 s."""
+        print("[BTN] Teste de atuadores por 5 s")
+        relay.force_on()
+        mosfet.force_on()
+        buzzer.beep(100)
+        time.sleep_ms(5000)
+        relay.force_off()
+        mosfet.force_off()
+        buzzer.beep(100)
+        print("[BTN] Teste de atuadores concluído")
+
+    menu.on_silo_action(force_tof_reading)
+    menu.on_diag_action(test_actuators)
+
+
+# ============================================================
+#  Entry point principal
+# ============================================================
+async def main():
+    # 1. Inicializa hardware
+    hw     = init_hardware()
+    wifi   = WiFiManager()
+    mqtt   = ThingsBoardMQTT()
+    state  = AppState()
+
+    # 2. Menu e display
+    menu = None
+    if hw["oled"]:
+        menu = MenuController(hw["oled"])
+        register_local_actions(menu, hw, state)
+
+    # 3. Sequência de boot (splash + diagnóstico + conexão)
+    boot_sequence(hw, wifi, mqtt)
+
+    # 4. Registra comandos RPC
+    register_rpc_commands(mqtt, hw, state)
+
+    # 5. Atualiza menu com status de conectividade
+    if menu:
+        menu.update_data(wifi_ok=wifi.is_connected, mqtt_ok=mqtt.is_connected)
+
+    print("[MAIN] Entrando no loop principal...")
+
+    # 6. Cria tasks assíncronas
+    asyncio.create_task(task_sensors(hw, state, mqtt, hw["sd"]))
+    asyncio.create_task(task_camera(hw, state, mqtt, hw["sd"]))
+    asyncio.create_task(task_mqtt(mqtt, wifi, state, hw["buzzer"]))
+
+    if menu:
+        asyncio.create_task(task_display(hw, state, menu, hw["buzzer"]))
+
+    # Loop principal (keepalive)
+    while True:
+        await asyncio.sleep_ms(1000)
+
+
+# ============================================================
+#  Lança o event loop
+# ============================================================
+try:
+    asyncio.run(main())
+except KeyboardInterrupt:
+    print("[MAIN] Interrompido pelo usuário")
+except Exception as e:
+    print(f"[MAIN] Erro fatal: {e}")
+    time.sleep_ms(3000)
+    machine.reset()   # reinicia automaticamente em erro grave
