@@ -379,11 +379,15 @@ def register_local_actions(menu, hw, state):
         """Btn2 na Tela C — testa relé e MOSFET por 5 s."""
         print("[BTN] Teste de atuadores por 5 s")
         relay.force_on()
+        state.relay_on = True
         mosfet.force_on()
+        state.mosfet_on = True
         buzzer.beep(100)
         time.sleep_ms(5000)
         relay.force_off()
+        state.relay_on = False
         mosfet.force_off()
+        state.mosfet_on = False
         buzzer.beep(100)
         print("[BTN] Teste de atuadores concluído")
 
