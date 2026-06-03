@@ -1,12 +1,12 @@
     ## Testes
-    - testar relé/mosfet
-    - testar temperatura/umidade
     - micro SD
 
     ## Ajustes de código
     - luminosidade
     - distância
+    - câmera no dashboard
 
     ## Implementar
     - dashboard
-    - câmera no dashboard
+    - case
+    
