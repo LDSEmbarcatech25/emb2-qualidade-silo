@@ -3,6 +3,11 @@
 #  Placa: Kiira (ESP32-S3 WROOM1 N16R8)
 #  Runtime: MicroPython com módulo camera (cnadler86)
 # ============================================================
+# main.py -- put your code here!# ============================================================
+#  main.py — Ponto de entrada do firmware Silo IoT
+#  Placa: Kiira (ESP32-S3 WROOM1 N16R8)
+#  Runtime: MicroPython com módulo camera (cnadler86)
+# ============================================================
 import time
 import machine
 import uasyncio as asyncio
@@ -240,23 +245,25 @@ async def task_camera(hw, state, mqtt, sd):
     while True:
         if state.capture_requested:
             state.capture_requested = False
-            print("[CAM] Captura solicitada")
+            print(f"[CAM] Captura solicitada — cam_ok={hw['cam_ok']}, ready={cam.is_ready}")
 
             if hw["oled"]:
                 hw["oled"].screen_capturing()
 
             jpeg_bytes, b64_str = cam.capture()
 
-            if jpeg_bytes:
+            if jpeg_bytes is None:
+                print("[CAM] FALHOU: capture() retornou None")
+            else:
+                print(f"[CAM] OK: {len(jpeg_bytes)} bytes JPEG, b64={len(b64_str)} chars")
+            
                 # Salva no SD
                 path = sd.save_image(jpeg_bytes)
-                print(f"[CAM] Imagem salva: {path} ({len(jpeg_bytes)} bytes)")
+                print(f"[CAM] SD: {path}")
 
                 # Envia via MQTT (Base64)
                 ok = mqtt.publish_image(b64_str)
-                print(f"[CAM] Imagem publicada MQTT: {'OK' if ok else 'FALHOU'}")
-            else:
-                print("[CAM] Falha na captura")
+                print(f"[CAM] MQTT: {'OK' if ok else 'FALHOU'}")
 
         await asyncio.sleep_ms(200)
 
