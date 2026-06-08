@@ -23,10 +23,12 @@ class Mosfet:
     def force_on(self):
         """Liga manualmente — bloqueia automação por sensor."""
         self._manual = True
+        print("[MSFT] Modo manual ativado.")
         self._on()
     def force_off(self):
-        """Desliga manualmente — bloqueia automação por sensor."""
-        self._manual = True
+        """Desliga manualmente — desbloqueia automação por sensor."""
+        self._manual = False
+        print("[MSFT] Modo manual desativado.")
         self._off()
     def set_auto(self):
         """Volta ao modo automático (controlado por sensor)."""

@@ -9,7 +9,8 @@ WIFI_PASSWORD = ""
 # --- ThingsBoard MQTT ---
 MQTT_BROKER    = "thingsboard.cloud"   # ou IP do servidor próprio
 MQTT_PORT      = 1883
-MQTT_TOKEN     = "RRWtjO0XF7ET5lfHyLRy"           # Access Token do device no ThingsBoard
+MQTT_TOKEN     = "Am7tiVBlqxybYqTgadfA"           # Access Token do device no ThingsBoard
+#MQTT_TOKEN     = "RRWtjO0XF7ET5lfHyLRy"           # Access Token do device no ThingsBoard
 MQTT_CLIENT_ID = "Silo_01"
 
 # Tópicos ThingsBoard
@@ -51,7 +52,7 @@ SD_D0  = 40
 CAM_XCLK      = 15
 CAM_SDA       = 4
 CAM_SCL       = 5
-CAM_DATA_PINS = [16, 17, 18, 12, 10, 8, 9, 11]
+CAM_DATA_PINS = [11, 9, 8, 10, 12, 18, 17, 16]
 CAM_VSYNC     = 6
 CAM_HREF      = 7
 CAM_PCLK      = 13
@@ -65,7 +66,7 @@ SILO_SENSOR_OFFSET = 50   # distância sensor → tampa (mm)
 MOVING_AVG_SAMPLES = 10
 
 # --- Limiares climáticos (com histerese) ---
-TEMP_MAX         = 35.0   # °C — acima disso liga relé/MOSFET
+TEMP_MAX         = 29.0   # °C — acima disso liga relé/MOSFET
 TEMP_HYSTERESIS  = 2.0    # °C — desliga quando temp < (TEMP_MAX - HYST)
 HUMID_MAX        = 70.0   # %RH
 HUMID_HYSTERESIS = 3.0    # %RH

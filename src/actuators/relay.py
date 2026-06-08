@@ -22,9 +22,11 @@ class Relay:
         return self._state
     def force_on(self):
         self._manual = True
+        print("[RLAY] Modo manual ativado.")
         self._on()
     def force_off(self):
-        self._manual = True
+        self._manual = False
+        print("[RLAY] Modo manual desativado.")
         self._off()
     def set_auto(self):
         """Volta ao modo automático."""
