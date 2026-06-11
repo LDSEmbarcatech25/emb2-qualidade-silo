@@ -12,10 +12,10 @@ class Mosfet:
         self._manual = False   # True = comando manual ativo, ignora automação
         self._off()
     def _on(self):
-        self._pin.value(0)
+        self._pin.value(1)
         self._state = True
     def _off(self):
-        self._pin.value(1)
+        self._pin.value(0)
         self._state = False
     @property
     def state(self):
