@@ -59,8 +59,8 @@ CAM_PCLK      = 13
 CAM_XCLK_FREQ = 20_000_000   # 20 MHz
 
 # --- Dimensões do silo (calibrar em campo) ---
-SILO_HEIGHT_MM   = 500   # altura total interna em mm
-SILO_SENSOR_OFFSET = 50   # distância sensor → tampa (mm)
+SILO_HEIGHT_MM   = 250   # altura total interna em mm
+SILO_SENSOR_OFFSET = 10   # distância sensor → tampa (mm)
 
 # --- Filtro de média móvel ---
 MOVING_AVG_SAMPLES = 10
